@@ -3,7 +3,6 @@ package com.alibaba.tensorflow_on_flink.models.wdl;
 import com.alibaba.flink.tensorflow.util.Docker;
 import com.alibaba.flink.tensorflow.util.MiniYarnCluster;
 import com.alibaba.flink.tensorflow.util.ShellExec;
-import com.alibaba.flink.tensorflow.util.TestUtil;
 import com.google.common.base.Preconditions;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
@@ -82,6 +81,7 @@ public class ClusterUtil {
 
     public static void downloadVenv(){
         String rootPath = getProjectRootPath();
+        LOG.info("download tfenv.zip");
         File tfenv = new File(rootPath + "/target/tfenv.zip");
         if(!tfenv.exists()) {
             ShellExec.run("wget http://etaose.oss-cn-hangzhou-zmf.aliyuncs.com/test%2Ftf_on_flink%2Fopen%2Ftfenv.zip -O "
