@@ -28,8 +28,7 @@ from six.moves import urllib
 import tensorflow as tf
 # pylint: enable=wrong-import-order
 
-from official.utils.flags import core as flags_core
-
+from utils.flags import core as flags_core
 
 DATA_URL = 'https://archive.ics.uci.edu/ml/machine-learning-databases/adult'
 TRAINING_FILE = 'adult.data'
@@ -89,39 +88,39 @@ def download(data_dir):
 def build_model_columns():
   """Builds a set of wide and deep feature columns."""
   # Continuous variable columns
-  age = tf.feature_column.numeric_column('age')
-  education_num = tf.feature_column.numeric_column('education_num')
-  capital_gain = tf.feature_column.numeric_column('capital_gain')
-  capital_loss = tf.feature_column.numeric_column('capital_loss')
-  hours_per_week = tf.feature_column.numeric_column('hours_per_week')
+  age = tf.contrib.layers.numeric_column('age')
+  education_num = tf.contrib.layers.numeric_column('education_num')
+  capital_gain = tf.contrib.layers.numeric_column('capital_gain')
+  capital_loss = tf.contrib.layers.numeric_column('capital_loss')
+  hours_per_week = tf.contrib.layers.numeric_column('hours_per_week')
 
-  education = tf.feature_column.categorical_column_with_vocabulary_list(
+  education = tf.contrib.layers.categorical_column_with_vocabulary_list(
       'education', [
           'Bachelors', 'HS-grad', '11th', 'Masters', '9th', 'Some-college',
           'Assoc-acdm', 'Assoc-voc', '7th-8th', 'Doctorate', 'Prof-school',
           '5th-6th', '10th', '1st-4th', 'Preschool', '12th'])
 
-  marital_status = tf.feature_column.categorical_column_with_vocabulary_list(
+  marital_status = tf.contrib.layers.categorical_column_with_vocabulary_list(
       'marital_status', [
           'Married-civ-spouse', 'Divorced', 'Married-spouse-absent',
           'Never-married', 'Separated', 'Married-AF-spouse', 'Widowed'])
 
-  relationship = tf.feature_column.categorical_column_with_vocabulary_list(
+  relationship = tf.contrib.layers.categorical_column_with_vocabulary_list(
       'relationship', [
           'Husband', 'Not-in-family', 'Wife', 'Own-child', 'Unmarried',
           'Other-relative'])
 
-  workclass = tf.feature_column.categorical_column_with_vocabulary_list(
+  workclass = tf.contrib.layers.categorical_column_with_vocabulary_list(
       'workclass', [
           'Self-emp-not-inc', 'Private', 'State-gov', 'Federal-gov',
           'Local-gov', '?', 'Self-emp-inc', 'Without-pay', 'Never-worked'])
 
   # To show an example of hashing:
-  occupation = tf.feature_column.categorical_column_with_hash_bucket(
+  occupation = tf.contrib.layers.categorical_column_with_hash_bucket(
       'occupation', hash_bucket_size=_HASH_BUCKET_SIZE)
 
   # Transformations.
-  age_buckets = tf.feature_column.bucketized_column(
+  age_buckets = tf.contrib.layers.bucketized_column(
       age, boundaries=[18, 25, 30, 35, 40, 45, 50, 55, 60, 65])
 
   # Wide columns and deep columns.
@@ -131,9 +130,9 @@ def build_model_columns():
   ]
 
   crossed_columns = [
-      tf.feature_column.crossed_column(
+      tf.contrib.layers.crossed_column(
           ['education', 'occupation'], hash_bucket_size=_HASH_BUCKET_SIZE),
-      tf.feature_column.crossed_column(
+      tf.contrib.layers.crossed_column(
           [age_buckets, 'education', 'occupation'],
           hash_bucket_size=_HASH_BUCKET_SIZE),
   ]
@@ -146,12 +145,12 @@ def build_model_columns():
       capital_gain,
       capital_loss,
       hours_per_week,
-      tf.feature_column.indicator_column(workclass),
-      tf.feature_column.indicator_column(education),
-      tf.feature_column.indicator_column(marital_status),
-      tf.feature_column.indicator_column(relationship),
+      tf.contrib.layers.indicator_column(workclass),
+      tf.contrib.layers.indicator_column(education),
+      tf.contrib.layers.indicator_column(marital_status),
+      tf.contrib.layers.indicator_column(relationship),
       # To show an example of embedding
-      tf.feature_column.embedding_column(occupation, dimension=8),
+      tf.contrib.layers.embedding_column(occupation, dimension=8),
   ]
 
   return wide_columns, deep_columns

@@ -7,6 +7,12 @@ import math
 import numpy
 import json
 import sys
+from utils.logs import logger
+from wide_deep import census_dataset
+from wide_deep import wide_deep_run_loop
+import os
+from absl import flags
+from utils.flags import core as flags_core
 
 
 def export_saved_model(sess, export_dir, tag_set, signatures):
@@ -78,6 +84,89 @@ def input_iter(filename, batch_size, num_epochs):
     return iterator
 
 
+
+def define_census_flags():
+  wide_deep_run_loop.define_wide_deep_flags()
+  flags.adopt_module_key_flags(wide_deep_run_loop)
+  flags_core.set_defaults(data_dir='../data',
+                          model_dir='../model',
+                          train_epochs=40,
+                          epochs_between_evals=2,
+                          batch_size=40)
+
+
+def build_estimator(model_dir, model_type, model_column_fn):
+  """Build an estimator appropriate for the given model type."""
+  wide_columns, deep_columns = model_column_fn()
+  hidden_units = [100, 75, 50, 25]
+
+  # Create a tf.estimator.RunConfig to ensure the model is run on CPU, which
+  # trains faster than GPU for this model.
+  run_config = tf.estimator.RunConfig().replace(
+      session_config=tf.ConfigProto(device_count={'GPU': 0}))
+
+  if model_type == 'wide':
+    return tf.estimator.LinearClassifier(
+        model_dir=model_dir,
+        feature_columns=wide_columns,
+        config=run_config)
+  elif model_type == 'deep':
+    return tf.estimator.DNNClassifier(
+        model_dir=model_dir,
+        feature_columns=deep_columns,
+        hidden_units=hidden_units,
+        config=run_config)
+  else:
+    return tf.estimator.DNNLinearCombinedClassifier(
+        model_dir=model_dir,
+        linear_feature_columns=wide_columns,
+        dnn_feature_columns=deep_columns,
+        dnn_hidden_units=hidden_units,
+        config=run_config)
+
+
+def run_census(flags_obj):
+  """Construct all necessary functions and call run_loop.
+
+  Args:
+    flags_obj: Object containing user specified flags.
+  """
+  if flags_obj.download_if_missing:
+    census_dataset.download(flags_obj.data_dir)
+
+  train_file = os.path.join(flags_obj.data_dir, census_dataset.TRAINING_FILE)
+  test_file = os.path.join(flags_obj.data_dir, census_dataset.EVAL_FILE)
+
+  # Train and evaluate the model every `flags.epochs_between_evals` epochs.
+  def train_input_fn():
+    return census_dataset.input_fn(
+        train_file, flags_obj.epochs_between_evals, True, flags_obj.batch_size)
+
+  def eval_input_fn():
+    return census_dataset.input_fn(test_file, 1, False, flags_obj.batch_size)
+
+  tensors_to_log = {
+      'average_loss': '{loss_prefix}head/truediv',
+      'loss': '{loss_prefix}head/weighted_loss/Sum'
+  }
+
+  wide_deep_run_loop.run_loop(
+      name="Census Income", train_input_fn=train_input_fn,
+      eval_input_fn=eval_input_fn,
+      model_column_fn=census_dataset.build_model_columns,
+      build_estimator_fn=build_estimator,
+      flags_obj=flags_obj,
+      tensors_to_log=tensors_to_log,
+      early_stop=True)
+
+
+def map_fn(context):
+    tf.logging.set_verbosity(tf.logging.INFO)
+    define_census_flags()
+    with logger.benchmark_context(flags.FLAGS):
+        run_census(flags.FLAGS)
+
+
 def map_fun(context):
     job_name = context.jobName
     task_index = context.index
@@ -129,81 +218,81 @@ def map_fun(context):
         # print("ps %d: quitting" % (task_index))
     elif job_name == "worker":
 
-        # Assigns ops to the local worker by default.
-        with tf.device(
-                tf.train.replica_device_setter(worker_device="/job:worker/task:" + str(task_index), cluster=cluster)):
-
-            # Placeholders or QueueRunner/Readers for input data
-            x = tf.placeholder(tf.float32, [None, IMAGE_PIXELS * IMAGE_PIXELS], name="x")
-            y_ = tf.placeholder(tf.float32, [None, 10], name="y_")
-
-            # Variables of the hidden layer
-            hid_w = tf.Variable(
-                tf.truncated_normal([IMAGE_PIXELS * IMAGE_PIXELS, hidden_units], stddev=1.0 / IMAGE_PIXELS),
-                name="hid_w")
-            hid_b = tf.Variable(tf.zeros([hidden_units]), name="hid_b")
-            hid_lin = tf.nn.xw_plus_b(x, hid_w, hid_b)
-            hid = tf.nn.relu(hid_lin)
-
-            # Variables of the softmax layer
-            sm_w = tf.Variable(
-                tf.truncated_normal([hidden_units, 10], stddev=1.0 / math.sqrt(hidden_units)),
-                name="sm_w")
-            sm_b = tf.Variable(tf.zeros([10]), name="sm_b")
-            y = tf.nn.softmax(tf.nn.xw_plus_b(hid, sm_w, sm_b))
-
-            global_step = tf.train.get_or_create_global_step()
-
-            loss = -tf.reduce_sum(y_ * tf.log(tf.clip_by_value(y, 1e-10, 1.0)))
-
-            train_op = tf.train.AdagradOptimizer(0.01).minimize(loss, global_step=global_step)
-
-            # Test trained model
-            label = tf.argmax(y_, 1, name="label")
-            prediction = tf.argmax(y, 1, name="prediction")
-            correct_prediction = tf.equal(prediction, label)
-
-            accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32), name="accuracy")
-
-            iter = input_iter(input_dir + "/" + str(task_index) + ".tfrecords", batch_size, epochs)
-            next_batch = iter.get_next()
-
-            is_chief = (task_index == 0)
-            sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False,
-                                         device_filters=["/job:ps", "/job:worker/task:%d" % task_index])
-
-            # The MonitoredTrainingSession takes care of session initialization, restoring from
-            #  a checkpoint, and closing when done or an error occurs
-            mon_sess = tf.train.MonitoredTrainingSession(master=server.target, is_chief=is_chief,
-                                                         checkpoint_dir=checkpoint_dir,
-                                                         stop_grace_period_secs=10, max_wait_secs=300,
-                                                         config=sess_config,
-                                                         chief_only_hooks=[ExportHook(export_dir, x, prediction)])
-            processed = 0
-            while not mon_sess.should_stop():
-                # Run a training step asynchronously
-                # See `tf.train.SyncReplicasOptimizer` for additional details on how to
-                # perform *synchronous* training.
-                try:
-                    images, labels = mon_sess.run(next_batch)
-                    processed += images.shape[0]
-                except tf.errors.OutOfRangeError:
-                    break
-
-                batch_xs, batch_ys = feed_dict(images, labels)
-                feed = {x: batch_xs, y_: batch_ys}
-
-                if len(batch_xs) > 0 and not mon_sess.should_stop():
-                    _, step = mon_sess.run([train_op, global_step], feed_dict=feed)
-                    if (step % 100 == 0):
-                        print("{0}, Task {1} step: {2} accuracy: {3}".format(
-                            datetime.now().isoformat(), task_index, step,
-                            mon_sess.run(accuracy, {x: batch_xs, y_: batch_ys})))
-                        sys.stdout.flush()
-
-            print(str(processed) + " records processed.")
-            print("{0} stopping MonitoredTrainingSession".format(datetime.now().isoformat()))
-            mon_sess.close()
+        # # Assigns ops to the local worker by default.
+        # with tf.device(
+        #         tf.train.replica_device_setter(worker_device="/job:worker/task:" + str(task_index), cluster=cluster)):
+        #
+        #     # Placeholders or QueueRunner/Readers for input data
+        #     x = tf.placeholder(tf.float32, [None, IMAGE_PIXELS * IMAGE_PIXELS], name="x")
+        #     y_ = tf.placeholder(tf.float32, [None, 10], name="y_")
+        #
+        #     # Variables of the hidden layer
+        #     hid_w = tf.Variable(
+        #         tf.truncated_normal([IMAGE_PIXELS * IMAGE_PIXELS, hidden_units], stddev=1.0 / IMAGE_PIXELS),
+        #         name="hid_w")
+        #     hid_b = tf.Variable(tf.zeros([hidden_units]), name="hid_b")
+        #     hid_lin = tf.nn.xw_plus_b(x, hid_w, hid_b)
+        #     hid = tf.nn.relu(hid_lin)
+        #
+        #     # Variables of the softmax layer
+        #     sm_w = tf.Variable(
+        #         tf.truncated_normal([hidden_units, 10], stddev=1.0 / math.sqrt(hidden_units)),
+        #         name="sm_w")
+        #     sm_b = tf.Variable(tf.zeros([10]), name="sm_b")
+        #     y = tf.nn.softmax(tf.nn.xw_plus_b(hid, sm_w, sm_b))
+        #
+        #     global_step = tf.train.get_or_create_global_step()
+        #
+        #     loss = -tf.reduce_sum(y_ * tf.log(tf.clip_by_value(y, 1e-10, 1.0)))
+        #
+        #     train_op = tf.train.AdagradOptimizer(0.01).minimize(loss, global_step=global_step)
+        #
+        #     # Test trained model
+        #     label = tf.argmax(y_, 1, name="label")
+        #     prediction = tf.argmax(y, 1, name="prediction")
+        #     correct_prediction = tf.equal(prediction, label)
+        #
+        #     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32), name="accuracy")
+        #
+        #     iter = input_iter(input_dir + "/" + str(task_index) + ".tfrecords", batch_size, epochs)
+        #     next_batch = iter.get_next()
+        #
+        #     is_chief = (task_index == 0)
+        #     sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False,
+        #                                  device_filters=["/job:ps", "/job:worker/task:%d" % task_index])
+        #
+        #     # The MonitoredTrainingSession takes care of session initialization, restoring from
+        #     #  a checkpoint, and closing when done or an error occurs
+        #     mon_sess = tf.train.MonitoredTrainingSession(master=server.target, is_chief=is_chief,
+        #                                                  checkpoint_dir=checkpoint_dir,
+        #                                                  stop_grace_period_secs=10, max_wait_secs=300,
+        #                                                  config=sess_config,
+        #                                                  chief_only_hooks=[ExportHook(export_dir, x, prediction)])
+        #     processed = 0
+        #     while not mon_sess.should_stop():
+        #         # Run a training step asynchronously
+        #         # See `tf.train.SyncReplicasOptimizer` for additional details on how to
+        #         # perform *synchronous* training.
+        #         try:
+        #             images, labels = mon_sess.run(next_batch)
+        #             processed += images.shape[0]
+        #         except tf.errors.OutOfRangeError:
+        #             break
+        #
+        #         batch_xs, batch_ys = feed_dict(images, labels)
+        #         feed = {x: batch_xs, y_: batch_ys}
+        #
+        #         if len(batch_xs) > 0 and not mon_sess.should_stop():
+        #             _, step = mon_sess.run([train_op, global_step], feed_dict=feed)
+        #             if (step % 100 == 0):
+        #                 print("{0}, Task {1} step: {2} accuracy: {3}".format(
+        #                     datetime.now().isoformat(), task_index, step,
+        #                     mon_sess.run(accuracy, {x: batch_xs, y_: batch_ys})))
+        #                 sys.stdout.flush()
+        #
+        #     print(str(processed) + " records processed.")
+        #     print("{0} stopping MonitoredTrainingSession".format(datetime.now().isoformat()))
+        #     mon_sess.close()
 
     SummaryWriterCache.clear()
 
