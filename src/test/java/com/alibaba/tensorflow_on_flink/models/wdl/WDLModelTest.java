@@ -16,7 +16,7 @@ import static com.alibaba.tensorflow_on_flink.models.wdl.ClusterUtil.JAR_NAME;
  * models.
  * 12/14/18.
  */
-public class WDLModelBatchTest {
+public class WDLModelTest {
     static String HDFS_ROOT_PATH = "/user/root/";
 
 
@@ -40,9 +40,9 @@ public class WDLModelBatchTest {
         System.out.println(ClusterUtil.getProjectRootPath());
     }
 
-    private void runAndVerify(WDLModelBatch.EnvMode mode) {
+    private void runAndVerify(WDLModel.EnvMode mode, String script) {
         String output = YarnCluster.flinkStreamRun(JAR_NAME,
-            WDLModelBatch.class.getCanonicalName(),
+            WDLModel.class.getCanonicalName(),
             "--train-dir",
             HDFS_ROOT_PATH + "data/",
             "--code",
@@ -54,7 +54,7 @@ public class WDLModelBatchTest {
             "--mode",
             mode.toString(),
             "--train",
-            "wnd_dist_on_flink.py",
+            script,
             "--envpath",
             YarnCluster.getVenvHdfsPath(),
             "--runner-class",
@@ -70,7 +70,7 @@ public class WDLModelBatchTest {
         }
     }
     @Test
-    public void testFlinkStreamRun() throws Exception{
+    public void testFlinkTableRun() throws Exception{
         System.out.println(SysUtil._FUNC_());
         String rootPath = ClusterUtil.getProjectRootPath();
         File code = new File(rootPath + "/target/code/");
@@ -87,7 +87,28 @@ public class WDLModelBatchTest {
 
         Docker.copyToContainer(YarnCluster.getYarnContainer(),
             rootPath + "/target/" + JAR_NAME, YarnCluster.WORK_HOME);
-        runAndVerify(WDLModelBatch.EnvMode.StreamTableEnv);
+        runAndVerify(WDLModel.EnvMode.StreamTableEnv, "wnd_dist_on_flink.py");
+    }
+
+    @Test
+    public void testFlinkInputTableRun() throws Exception{
+        System.out.println(SysUtil._FUNC_());
+        String rootPath = ClusterUtil.getProjectRootPath();
+        File code = new File(rootPath + "/target/code/");
+        if(code.exists()){
+            code.delete();
+        }
+        code.mkdir();
+        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/wnd_dist_on_flink_stream.py " + code.getAbsolutePath());
+        ShellExec.run("cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
+        Docker.copyToContainer(YarnCluster.getYarnContainer(),
+            rootPath + "/target/code.zip", YarnCluster.WORK_HOME);
+        Docker.exec(YarnCluster.getYarnContainer(), "hadoop fs -put "
+            + YarnCluster.WORK_HOME + "/code.zip " + HDFS_ROOT_PATH);
+
+        Docker.copyToContainer(YarnCluster.getYarnContainer(),
+            rootPath + "/target/" + JAR_NAME, YarnCluster.WORK_HOME);
+        runAndVerify(WDLModel.EnvMode.InputStreamTableEnv, "wnd_dist_on_flink_stream.py");
     }
 
 }

@@ -1,26 +1,40 @@
 package com.alibaba.tensorflow_on_flink.models.wdl;
 
+import com.alibaba.flink.tensorflow.client.ExecutionMode;
 import com.alibaba.flink.tensorflow.client.TFConfig;
 import com.alibaba.flink.tensorflow.client.TFUtils;
+import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableFunction;
+import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableSource;
+import com.alibaba.flink.tensorflow.flink_op.table.TFTableFunction;
 import com.alibaba.flink.tensorflow.util.Constants;
+import com.alibaba.flink.tensorflow.util.FlinkUtil;
+import com.alibaba.flink.tensorflow.util.Role;
 import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import org.apache.commons.lang.StringUtils;
+import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.ExecutionEnvironment;
+import org.apache.flink.api.java.typeutils.RowTypeInfo;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.TableSchema;
+import org.apache.flink.table.api.functions.TableFunction;
 import org.apache.flink.table.api.types.DataTypes;
+import org.apache.flink.table.sinks.PrintTableSink;
+import org.apache.flink.types.Row;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TimeZone;
 
-public class WDLModelBatch {
+public class WDLModel {
 
     private Path trainPath;
     private Path outputPath;
@@ -33,16 +47,17 @@ public class WDLModelBatch {
     public enum EnvMode {
         StreamEnv,
         BatchEnv,
-        StreamTableEnv
+        StreamTableEnv,
+        InputStreamTableEnv
     }
 
-    public WDLModelBatch(String trainPath, String outputPath, String zkConnStr, String envPath,
-                         String runnerClass){
+    public WDLModel(String trainPath, String outputPath, String zkConnStr, String envPath,
+                    String runnerClass){
         this(trainPath, outputPath, zkConnStr, envPath, runnerClass, null);
     }
 
-    public WDLModelBatch(String trainPath, String outputPath, String zkConnStr, String envPath,
-                         String runnerClass, String codePath) {
+    public WDLModel(String trainPath, String outputPath, String zkConnStr, String envPath,
+                    String runnerClass, String codePath) {
         this.trainPath = new Path(trainPath);
         this.outputPath = new Path(outputPath);
         this.zkConnStr = zkConnStr;
@@ -101,7 +116,7 @@ public class WDLModelBatch {
         String runnerClass = res.getString("RUNNER_CLASS");
         String code = res.getString("CODE");
 
-        WDLModelBatch wdl = new WDLModelBatch(trainDir, outputDir, zkConnStr, envPath, runnerClass, code);
+        WDLModel wdl = new WDLModel(trainDir, outputDir, zkConnStr, envPath, runnerClass, code);
 
         EnvMode mode = res.get("MODE");
         switch (mode) {
@@ -113,6 +128,9 @@ public class WDLModelBatch {
                 break;
             case StreamTableEnv:
                 wdl.trainTableStreamEnv(trainPy);
+                break;
+            case InputStreamTableEnv:
+                wdl.trainInputTableStreamEnv(trainPy);
                 break;
         }
         wdl.close();
@@ -174,4 +192,66 @@ public class WDLModelBatch {
         flinkEnv.execute();
     }
 
+    private void trainInputTableStreamEnv(String trainPy) throws Exception {
+        StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
+        TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
+        TFConfig tfConfig = prepareTrainConfig(trainPy);
+        tfConfig.setWorkerNum(1);
+
+        buildAmAndPs(flinkEnv, tableEnv, tfConfig);
+
+        flinkEnv.setParallelism(tfConfig.getWorkerNum());
+        WDLTableSource tableSource = new WDLTableSource(tfConfig.getProperty("input") + "/adult.data", 15, Long.MAX_VALUE);
+        tableEnv.registerTableSource("adult", tableSource);
+        Table source = tableEnv.scan("adult");
+        RowTypeInfo inTypeInfo = tableSource.getTypeInfo();
+        TypeInformation[] types = new TypeInformation[1];
+        types[0] = BasicTypeInfo.STRING_TYPE_INFO;
+        String[] names = {"aa"};
+        RowTypeInfo outTypeInfo = new RowTypeInfo(types, names);
+        TableFunction<Row> workerFunc = new TFNodeTableFunction(ExecutionMode.TRAIN, Role.WORKER, tfConfig,
+            inTypeInfo, outTypeInfo);
+        FlinkUtil.registerTableFunction(tableEnv, "workerFunc", workerFunc);
+
+        StringBuilder sb = new StringBuilder();
+        for(String s: inTypeInfo.getFieldNames()){
+            sb.append(s).append(",");
+        }
+        sb.deleteCharAt(sb.length()-1);
+        Table worker = source.select(sb.toString())
+            .join(new Table(tableEnv, "workerFunc(" + sb.toString() + ") as (aa)"))
+            .select("aa");
+        worker.writeToSink(new PrintTableSink(TimeZone.getDefault()));
+
+        flinkEnv.execute();
+    }
+
+
+    private void buildAmAndPs(StreamExecutionEnvironment flinkEnv, TableEnvironment tableEnv, TFConfig config) {
+        Table ps;
+        Table am;
+        RowTypeInfo commonTypeInfo = getCommonTypeInfo();
+        flinkEnv.setParallelism(1);
+        am = createTableSource(tableEnv, ExecutionMode.TRAIN, Role.AM, config, commonTypeInfo);
+        am.writeToSink(new TFTableFunction.TableStreamDummySink());
+        if(config.getPsNum()>0) {
+            flinkEnv.setParallelism(config.getPsNum());
+            ps = createTableSource(tableEnv, ExecutionMode.TRAIN, Role.PS, config, commonTypeInfo);
+            ps.writeToSink(new TFTableFunction.TableStreamDummySink());
+        }
+    }
+
+    private RowTypeInfo getCommonTypeInfo() {
+        TypeInformation[] types = new TypeInformation[1];
+        types[0] = BasicTypeInfo.STRING_TYPE_INFO;
+        String[] names = new String[1];
+        names[0] = "a";
+        return new RowTypeInfo(types, names);
+    }
+
+    private static Table createTableSource(TableEnvironment flinkEnv, ExecutionMode mode, Role job, TFConfig tfConfig,
+                                           RowTypeInfo typeInfo) {
+        flinkEnv.registerTableSource(job.name(), new TFNodeTableSource(mode, job, tfConfig, typeInfo));
+        return flinkEnv.scan(job.name());
+    }
 }
