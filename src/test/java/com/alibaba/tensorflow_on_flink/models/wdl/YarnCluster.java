@@ -66,6 +66,14 @@ public class YarnCluster {
         return res;
     }
 
+    public static boolean prepareHDFSInputData(){
+        boolean res = Docker.exec(getYarnContainer(), "hadoop fs -put " + WORK_HOME + "/data" + " " +VENV_HDFS_PATH);
+        if(!res){
+            return res;
+        }
+        return res;
+    }
+
     public static YarnCluster start() {
         // make sure to use the latest image
         Docker.pull(YARN_ORG_IMAGE);

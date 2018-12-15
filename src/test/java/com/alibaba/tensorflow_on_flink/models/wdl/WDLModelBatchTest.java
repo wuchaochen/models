@@ -17,17 +17,17 @@ import static com.alibaba.tensorflow_on_flink.models.wdl.ClusterUtil.JAR_NAME;
  * 12/14/18.
  */
 public class WDLModelBatchTest {
-    static String hdfsDataDir = "/user/root/data/";
+    static String HDFS_ROOT_PATH = "/user/root/";
 
 
     @Before
     public void setUp() throws Exception {
         ClusterUtil.downloadVenv();
         YarnCluster.start();
-        ClusterUtil.copyJarToContainer();
         ClusterUtil.copyVenvToContainer();
         ClusterUtil.copyDataToContainer();
         YarnCluster.prepareHDFSEnv();
+        YarnCluster.prepareHDFSInputData();
     }
 
     @After
@@ -44,9 +44,9 @@ public class WDLModelBatchTest {
         String output = YarnCluster.flinkStreamRun(JAR_NAME,
             WDLModelBatch.class.getCanonicalName(),
             "--train-dir",
-            hdfsDataDir,
+            HDFS_ROOT_PATH + "data/",
             "--code",
-            hdfsDataDir + "code.zip",
+            HDFS_ROOT_PATH + "code.zip",
             "--output-dir",
             "/user/root/minist/output_" + System.currentTimeMillis(),
             "--zk-conn-str",
@@ -54,7 +54,7 @@ public class WDLModelBatchTest {
             "--mode",
             mode.toString(),
             "--train",
-            "/mnist_dist.py",
+            "wnd_dist_on_flink.py",
             "--envpath",
             YarnCluster.getVenvHdfsPath(),
             "--runner-class",
@@ -78,18 +78,16 @@ public class WDLModelBatchTest {
             code.delete();
         }
         code.mkdir();
-        ShellExec.run("cp -r " + rootPath + "/python/* " + code.getAbsolutePath());
+        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/wnd_dist_on_flink.py " + code.getAbsolutePath());
         ShellExec.run("cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
         Docker.copyToContainer(YarnCluster.getYarnContainer(),
             rootPath + "/target/code.zip", YarnCluster.WORK_HOME);
         Docker.exec(YarnCluster.getYarnContainer(), "hadoop fs -put "
-            + YarnCluster.WORK_HOME + "/code.zip " + hdfsDataDir);
+            + YarnCluster.WORK_HOME + "/code.zip " + HDFS_ROOT_PATH);
 
         Docker.copyToContainer(YarnCluster.getYarnContainer(),
-            rootPath + "/examples/mnist/src/python/mnist_dist.py", YarnCluster.WORK_HOME);
-        Docker.copyToContainer(YarnCluster.getYarnContainer(),
-            rootPath + "/alibaba/target/" + JAR_NAME, YarnCluster.WORK_HOME);
-        runAndVerify(WDLModelBatch.EnvMode.StreamEnv);
+            rootPath + "/target/" + JAR_NAME, YarnCluster.WORK_HOME);
+        runAndVerify(WDLModelBatch.EnvMode.StreamTableEnv);
     }
 
 }

@@ -131,7 +131,7 @@ public class WDLModelBatch {
         prop.put("epochs", "3");
         String mode = "train";
         prop.put("mode", mode);
-        prop.put("input", getRemotePath(trainPath) + "/" + mode);
+        prop.put("input", getRemotePath(trainPath));
         prop.put("checkpoint_dir", getRemotePath(outputPath) + "/checkpoint");
         prop.put("export_dir", getRemotePath(outputPath) + "/model");
         if(null != codePath){
@@ -148,7 +148,7 @@ public class WDLModelBatch {
             prop.put(Constants.SCRIPT_RUNNER_CLASS, runnerClass);
         }
 
-        return new TFConfig(2, 1, prop, new String[]{trainPy}, "map_fun", envPath);
+        return new TFConfig(2, 1, prop, new String[]{trainPy}, "map_func", envPath);
     }
 
     private void trainBatchEnv(String trainPy) throws Exception {

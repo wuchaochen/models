@@ -27,17 +27,42 @@ _NUM_EXAMPLES = {
 }
 
 
-def build_run_config(cluster, type, task_id, model_dir):
-    """Build run_config for every role: worker or ps."""
+def cluster_to_estimator(cluster_str):
+    cluster = json.loads(cluster_str)
+    worker_0 = cluster['worker'][0]
+    del (cluster['worker'][0])
+    cluster['chief'] = [worker_0]
+    return cluster
+
+
+def export_cluster_env(cluster_str, job_name, index):
+    cluster = cluster_to_estimator(cluster_str)
+    if 'ps' == job_name:
+        task_type = 'ps'
+        task_index = index
+    elif 'worker' == job_name:
+        if 0 == index:
+            task_type = 'chief'
+            task_index = 0
+        else:
+            task_type = 'worker'
+            task_index = index - 1
+
     os.environ['TF_CONFIG'] = json.dumps(
         {'cluster': cluster,
-         'task': {'type': type, 'index': int(task_id)}})
+         'task': {'type': task_type, 'index': task_index}})
+    print (os.environ['TF_CONFIG'])
+    return cluster, task_type, task_index
 
-    print("os env:%s" % os.environ['TF_CONFIG'])
+
+def build_run_config(cluster_str, job_name, task_id, model_dir):
+    """Build run_config for every role: worker or ps."""
+    cluster_json, task_type, task_index = export_cluster_env(cluster_str, job_name, task_id)
     run_config = tf.estimator.RunConfig(model_dir=model_dir)  # save if not zero
     config = tf.ConfigProto(log_device_placement=True)
-    server = tf.train.Server(cluster, job_name=type, task_index=int(task_id), config=config)
-    if type == "ps":
+    cluster = tf.train.ClusterSpec(cluster=cluster_json)
+    server = tf.train.Server(cluster, job_name=task_type, task_index=int(task_index), config=config)
+    if job_name == "ps":
         server.join()
     return run_config
 
@@ -56,7 +81,11 @@ def build_estimator(context, model_dir, model_type, model_column_fn):
 
     # Create a tf.estimator.RunConfig to ensure the model is run on CPU, which
     # trains faster than GPU for this model.
-    run_config = build_run_config(context['cluster'], context['type'], context['task_id'], model_dir)
+    job_name = context.jobName
+    task_index = context.index
+    props = context.properties
+    run_config = build_run_config(cluster_str=props["cluster"], job_name=job_name, task_id=task_index,
+                                  model_dir=model_dir)
 
     if model_type == 'wide':
         return tf.estimator.LinearClassifier(
@@ -84,9 +113,17 @@ def map_func(context):
     Args:
         context: Object containing params.
     """
-    data_dir = context['data_dir']
-    epochs_between_evals = context['epochs_between_evals']
-    batch_size = context['batch_size']
+
+    job_name = context.jobName
+    task_index = context.index
+    props = context.properties
+    batch_size = 40
+    input_dir = props.get("input")
+    epochs = int(props.get("epochs"))
+    checkpoint_dir = props.get("checkpoint_dir")
+    export_dir = props.get("export_dir")
+    data_dir = input_dir
+    epochs_between_evals = 1
 
     train_file = os.path.join(data_dir, TRAINING_FILE)
     test_file = os.path.join(data_dir, EVAL_FILE)
@@ -94,7 +131,7 @@ def map_func(context):
     # Train and evaluate the model every `epochs_between_evals` epochs.
     def train_input_fn():
         return input_fn(
-          train_file, epochs_between_evals, True, batch_size)
+            train_file, epochs_between_evals, True, batch_size)
 
     def eval_input_fn():
         return input_fn(test_file, 1, False, batch_size)
@@ -119,12 +156,13 @@ def run_loop(context, train_input_fn, eval_input_fn, model_column_fn,
         model_column_fn: build model columns
         build_estimator_fn: build estimator
     """
-    apply_clean(context)
-    model_dir = context['model_dir']
-    model_type = context['model_type']
-    train_epochs = context['train_epochs']
-    epochs_between_evals = context['epochs_between_evals']
-    stop_threshold = context['stop_threshold']
+
+    apply_clean(context.properties["checkpoint_dir"])
+    model_dir = context.properties["checkpoint_dir"]
+    model_type = 'wide_deep'
+    train_epochs = 40
+    epochs_between_evals = 1
+    stop_threshold = 0.8
 
     model = build_estimator_fn(
         model_dir=model_dir, model_type=model_type,
@@ -170,10 +208,9 @@ def past_stop_threshold(stop_threshold, eval_metric):
     return False
 
 
-def apply_clean(context):
+def apply_clean(model_dir):
     """clean existing model dir when clean is True and model_dir exists"""
-    clean = context['clean']
-    model_dir = context['model_dir']
+    clean = True
     if clean and tf.gfile.Exists(model_dir):
         tf.logging.info("--clean flag set. Removing existing model dir: {}".format(model_dir))
         tf.gfile.DeleteRecursively(model_dir)
@@ -305,4 +342,3 @@ if __name__ == '__main__':
     context['clean'] = True
     context['cluster'] = {'chief': ['localhost:2222'], 'ps': ['localhost:4444'], 'worker': ['localhost:2223']}
     map_func(context)
-
