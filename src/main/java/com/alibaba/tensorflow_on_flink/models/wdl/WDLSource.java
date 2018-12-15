@@ -4,7 +4,7 @@ import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
-import org.apache.flink.streaming.api.functions.source.SourceFunction;
+import org.apache.flink.streaming.api.functions.source.ParallelSourceFunction;
 import org.apache.flink.types.Row;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -20,7 +20,7 @@ import java.util.List;
  * models.
  * 12/15/18.
  */
-public class WDLSource implements SourceFunction<Row>, ResultTypeQueryable {
+public class WDLSource implements ResultTypeQueryable, ParallelSourceFunction<Row> {
     private String filePath;
     private int columnNum = 0;
     public  RowTypeInfo typeInfo;
@@ -58,7 +58,6 @@ public class WDLSource implements SourceFunction<Row>, ResultTypeQueryable {
         while ((lineTxt = bufferedReader.readLine()) != null)
         {
             stringList.add(lineTxt);
-//            System.out.println("line:" + lineTxt);
         }
         System.out.println("begin send message");
         boolean flag = true;

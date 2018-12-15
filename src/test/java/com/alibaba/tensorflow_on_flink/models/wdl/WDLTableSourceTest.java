@@ -29,7 +29,7 @@ public class WDLTableSourceTest {
     @Test
     public void testRunWDLSource() throws Exception{
         StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
-        flinkEnv.setParallelism(1);
+        flinkEnv.setParallelism(2);
         TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
         String rootPath = ClusterUtil.getProjectRootPath();
 

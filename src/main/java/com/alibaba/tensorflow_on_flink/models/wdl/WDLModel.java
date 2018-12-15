@@ -8,6 +8,7 @@ import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableSource;
 import com.alibaba.flink.tensorflow.flink_op.table.TFTableFunction;
 import com.alibaba.flink.tensorflow.util.Constants;
 import com.alibaba.flink.tensorflow.util.FlinkUtil;
+import com.alibaba.flink.tensorflow.util.PythonFileUtil;
 import com.alibaba.flink.tensorflow.util.Role;
 import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
@@ -20,6 +21,7 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.Table;
+import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.functions.TableFunction;
@@ -196,14 +198,18 @@ public class WDLModel {
         StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
         TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
         TFConfig tfConfig = prepareTrainConfig(trainPy);
-        tfConfig.setWorkerNum(1);
+        PythonFileUtil.registerPythonFiles(flinkEnv, tfConfig);
+
+        tfConfig.setWorkerNum(2);
 
         buildAmAndPs(flinkEnv, tableEnv, tfConfig);
 
         flinkEnv.setParallelism(tfConfig.getWorkerNum());
-        WDLTableSource tableSource = new WDLTableSource(tfConfig.getProperty("input") + "/adult.data", 15, Long.MAX_VALUE);
+        WDLTableSource tableSource = new WDLTableSource(tfConfig.getProperty("input") + "/adult.data",
+            15, Long.MAX_VALUE);
         tableEnv.registerTableSource("adult", tableSource);
         Table source = tableEnv.scan("adult");
+//        source.writeToSink(new PrintTableSink(TimeZone.getDefault()));
         RowTypeInfo inTypeInfo = tableSource.getTypeInfo();
         TypeInformation[] types = new TypeInformation[1];
         types[0] = BasicTypeInfo.STRING_TYPE_INFO;
@@ -211,7 +217,7 @@ public class WDLModel {
         RowTypeInfo outTypeInfo = new RowTypeInfo(types, names);
         TableFunction<Row> workerFunc = new TFNodeTableFunction(ExecutionMode.TRAIN, Role.WORKER, tfConfig,
             inTypeInfo, outTypeInfo);
-        FlinkUtil.registerTableFunction(tableEnv, "workerFunc", workerFunc);
+        FlinkUtil.registerTableFunction(tableEnv, "TFWorkerFunc", workerFunc);
 
         StringBuilder sb = new StringBuilder();
         for(String s: inTypeInfo.getFieldNames()){
@@ -219,7 +225,7 @@ public class WDLModel {
         }
         sb.deleteCharAt(sb.length()-1);
         Table worker = source.select(sb.toString())
-            .join(new Table(tableEnv, "workerFunc(" + sb.toString() + ") as (aa)"))
+            .join(new Table(tableEnv, "TFWorkerFunc(" + sb.toString() + ") as (aa)"))
             .select("aa");
         worker.writeToSink(new PrintTableSink(TimeZone.getDefault()));
 

@@ -30,10 +30,10 @@ public class WDLModelTest {
         YarnCluster.prepareHDFSInputData();
     }
 
-    @After
-    public void tearDown() throws Exception {
-        YarnCluster.stop();
-    }
+//    @After
+//    public void tearDown() throws Exception {
+//        YarnCluster.stop();
+//    }
 
     @Test
     public void testRunWDLBatch() throws Exception{
