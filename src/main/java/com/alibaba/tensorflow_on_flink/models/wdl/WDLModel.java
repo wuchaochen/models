@@ -3,6 +3,7 @@ package com.alibaba.tensorflow_on_flink.models.wdl;
 import com.alibaba.flink.tensorflow.client.ExecutionMode;
 import com.alibaba.flink.tensorflow.client.TFConfig;
 import com.alibaba.flink.tensorflow.client.TFUtils;
+import com.alibaba.flink.tensorflow.flink_op.sink.DummySink;
 import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableFunction;
 import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableSource;
 import com.alibaba.flink.tensorflow.flink_op.table.TFTableFunction;
@@ -19,12 +20,14 @@ import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
+import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.functions.TableFunction;
+import org.apache.flink.table.api.java.StreamTableEnvironment;
 import org.apache.flink.table.api.types.DataTypes;
 import org.apache.flink.table.sinks.PrintTableSink;
 import org.apache.flink.types.Row;
@@ -50,7 +53,8 @@ public class WDLModel {
         StreamEnv,
         BatchEnv,
         StreamTableEnv,
-        InputStreamTableEnv
+        InputStreamTableEnv,
+        TableToStreamInputEnv
     }
 
     public WDLModel(String trainPath, String outputPath, String zkConnStr, String envPath,
@@ -134,6 +138,9 @@ public class WDLModel {
             case InputStreamTableEnv:
                 wdl.trainInputTableStreamEnv(trainPy);
                 break;
+            case TableToStreamInputEnv:
+                wdl.trainTableToStreamWithInput(trainPy);
+                break;
         }
         wdl.close();
     }
@@ -191,6 +198,38 @@ public class WDLModel {
         TFConfig tfConfig = prepareTrainConfig(trainPy);
         TableSchema tableSchema = TableSchema.builder().field("a", DataTypes.STRING).build();
         TFUtils.train(flinkEnv, tableEnv, null, tfConfig, tableSchema);
+        flinkEnv.execute();
+    }
+
+    private void trainTableToStreamWithInput(String trainPy) throws Exception {
+        StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
+        TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
+        TFConfig tfConfig = prepareTrainConfig(trainPy);
+        tfConfig.setWorkerNum(2);
+
+        PythonFileUtil.registerPythonFiles(flinkEnv, tfConfig);
+
+        buildAmAndPs(flinkEnv, tableEnv, tfConfig);
+
+        WDLTableSource tableSource = new WDLTableSource(
+            tfConfig.getProperty("input") + "/adult.data", 15, Long.MAX_VALUE);
+        tableEnv.registerTableSource("adult", tableSource);
+        Table source = tableEnv.scan("adult");
+        TypeInformation[] types = new TypeInformation[1];
+        types[0] = BasicTypeInfo.STRING_TYPE_INFO;
+        String[] names = { "aa" };
+        RowTypeInfo outTypeInfo = new RowTypeInfo(types, names);
+
+        DataStream<Row> toDataStream = ((StreamTableEnvironment) tableEnv).toAppendStream(
+            source, tableSource.getTypeInfo());
+        RowFlatMapOp flatMapOp = new RowFlatMapOp(ExecutionMode.TRAIN, Role.WORKER, tfConfig,
+            tableSource.getTypeInfo(), outTypeInfo);
+        DataStream<Row> outDataStream = toDataStream.flatMap(flatMapOp)
+            .setParallelism(tfConfig.getWorkerNum()).name(Constants.DISPLAY_NAME_WORKER);
+        outDataStream.addSink(new DummySink<>()).setParallelism(tfConfig.getWorkerNum())
+            .name(Constants.DISPLAY_NAME_DUMMY_SINK);
+        Table worker = ((StreamTableEnvironment) tableEnv).fromDataStream(outDataStream);
+        worker.writeToSink(new PrintTableSink(TimeZone.getDefault()));
         flinkEnv.execute();
     }
 

@@ -111,4 +111,27 @@ public class WDLModelTest {
         runAndVerify(WDLModel.EnvMode.InputStreamTableEnv, "wnd_dist_on_flink_stream.py");
     }
 
+    @Test
+    public void testTableToStreamWithInput() throws Exception {
+        System.out.println(SysUtil._FUNC_());
+        String rootPath = ClusterUtil.getProjectRootPath();
+        File code = new File(rootPath + "/target/code/");
+        if (code.exists()) {
+            code.delete();
+        }
+        code.mkdir();
+        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/wnd_dist_on_flink_stream.py " + code
+            .getAbsolutePath());
+        ShellExec.run(
+            "cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
+        Docker.copyToContainer(YarnCluster.getYarnContainer(),
+            rootPath + "/target/code.zip", YarnCluster.WORK_HOME);
+        Docker.exec(YarnCluster.getYarnContainer(), "hadoop fs -put "
+            + YarnCluster.WORK_HOME + "/code.zip " + HDFS_ROOT_PATH);
+
+        Docker.copyToContainer(YarnCluster.getYarnContainer(),
+            rootPath + "/target/" + JAR_NAME, YarnCluster.WORK_HOME);
+        runAndVerify(WDLModel.EnvMode.TableToStreamInputEnv, "wnd_dist_on_flink_stream.py");
+    }
+
 }
