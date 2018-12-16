@@ -3,11 +3,13 @@ package com.alibaba.tensorflow_on_flink.models.wdl;
 import com.alibaba.flink.tensorflow.client.ExecutionMode;
 import com.alibaba.flink.tensorflow.client.TFConfig;
 import com.alibaba.flink.tensorflow.client.TFUtils;
+import com.alibaba.flink.tensorflow.coding.CodingFactory;
 import com.alibaba.flink.tensorflow.flink_op.sink.DummySink;
 import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableFunction;
 import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableSource;
 import com.alibaba.flink.tensorflow.flink_op.table.TFTableFunction;
 import com.alibaba.flink.tensorflow.util.Constants;
+import com.alibaba.flink.tensorflow.util.FlinkAPIConstants;
 import com.alibaba.flink.tensorflow.util.FlinkUtil;
 import com.alibaba.flink.tensorflow.util.PythonFileUtil;
 import com.alibaba.flink.tensorflow.util.Role;
@@ -206,31 +208,36 @@ public class WDLModel {
         TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
         TFConfig tfConfig = prepareTrainConfig(trainPy);
         tfConfig.setWorkerNum(2);
+        tfConfig.getProperties().put(FlinkAPIConstants.CODING_TYPE, CodingFactory.CodingType.CSV.toString());
 
-        PythonFileUtil.registerPythonFiles(flinkEnv, tfConfig);
+//        PythonFileUtil.registerPythonFiles(flinkEnv, tfConfig);
+//
+//        buildAmAndPs(flinkEnv, tableEnv, tfConfig);
 
-        buildAmAndPs(flinkEnv, tableEnv, tfConfig);
-
+        // parallelism for WDLTableSource
+        flinkEnv.setParallelism(1);
         WDLTableSource tableSource = new WDLTableSource(
-            tfConfig.getProperty("input") + "/adult.data", 15, Long.MAX_VALUE);
+            tfConfig.getProperty("input") + "/adult.data", 15, 100000);
         tableEnv.registerTableSource("adult", tableSource);
         Table source = tableEnv.scan("adult");
-        TypeInformation[] types = new TypeInformation[1];
-        types[0] = BasicTypeInfo.STRING_TYPE_INFO;
-        String[] names = { "aa" };
-        RowTypeInfo outTypeInfo = new RowTypeInfo(types, names);
-
-        DataStream<Row> toDataStream = ((StreamTableEnvironment) tableEnv).toAppendStream(
-            source, tableSource.getTypeInfo());
-        RowFlatMapOp flatMapOp = new RowFlatMapOp(ExecutionMode.TRAIN, Role.WORKER, tfConfig,
-            tableSource.getTypeInfo(), outTypeInfo);
-        DataStream<Row> outDataStream = toDataStream.flatMap(flatMapOp)
-            .setParallelism(tfConfig.getWorkerNum()).name(Constants.DISPLAY_NAME_WORKER);
-        outDataStream.addSink(new DummySink<>()).setParallelism(tfConfig.getWorkerNum())
-            .name(Constants.DISPLAY_NAME_DUMMY_SINK);
-        Table worker = ((StreamTableEnvironment) tableEnv).fromDataStream(outDataStream);
-        worker.writeToSink(new PrintTableSink(TimeZone.getDefault()));
+        TFUtils.train(flinkEnv, tableEnv, source, tfConfig,
+            TableSchema.builder().field("aa", DataTypes.STRING).build());
         flinkEnv.execute();
+//        TypeInformation[] types = new TypeInformation[1];
+//        types[0] = BasicTypeInfo.STRING_TYPE_INFO;
+//        String[] names = { "aa" };
+//        RowTypeInfo outTypeInfo = new RowTypeInfo(types, names);
+//        DataStream<Row> toDataStream = ((StreamTableEnvironment) tableEnv).toAppendStream(
+//            source, tableSource.getTypeInfo());
+//        RowFlatMapOp flatMapOp = new RowFlatMapOp(ExecutionMode.TRAIN, Role.WORKER, tfConfig,
+//            tableSource.getTypeInfo(), outTypeInfo);
+//        DataStream<Row> outDataStream = toDataStream.flatMap(flatMapOp)
+//            .setParallelism(tfConfig.getWorkerNum()).name(Constants.DISPLAY_NAME_WORKER);
+//        outDataStream.addSink(new DummySink<>()).setParallelism(tfConfig.getWorkerNum())
+//            .name(Constants.DISPLAY_NAME_DUMMY_SINK);
+//        Table worker = ((StreamTableEnvironment) tableEnv).fromDataStream(outDataStream);
+//        worker.writeToSink(new PrintTableSink(TimeZone.getDefault()));
+//        flinkEnv.execute();
     }
 
     private void trainInputTableStreamEnv(String trainPy) throws Exception {
@@ -277,11 +284,12 @@ public class WDLModel {
         Table am;
         RowTypeInfo commonTypeInfo = getCommonTypeInfo();
         flinkEnv.setParallelism(1);
-        am = createTableSource(tableEnv, ExecutionMode.TRAIN, Role.AM, config, commonTypeInfo);
+        am = createTableSource(tableEnv, ExecutionMode.TRAIN, Role.AM, config, commonTypeInfo, 1);
         am.writeToSink(new TFTableFunction.TableStreamDummySink());
         if(config.getPsNum()>0) {
             flinkEnv.setParallelism(config.getPsNum());
-            ps = createTableSource(tableEnv, ExecutionMode.TRAIN, Role.PS, config, commonTypeInfo);
+            ps = createTableSource(tableEnv, ExecutionMode.TRAIN, Role.PS, config, commonTypeInfo,
+                config.getPsNum());
             ps.writeToSink(new TFTableFunction.TableStreamDummySink());
         }
     }
@@ -295,8 +303,8 @@ public class WDLModel {
     }
 
     private static Table createTableSource(TableEnvironment flinkEnv, ExecutionMode mode, Role job, TFConfig tfConfig,
-                                           RowTypeInfo typeInfo) {
-        flinkEnv.registerTableSource(job.name(), new TFNodeTableSource(mode, job, tfConfig, typeInfo));
+                                           RowTypeInfo typeInfo, int parallelism) {
+        flinkEnv.registerTableSource(job.name(), new TFNodeTableSource(mode, job, tfConfig, typeInfo, parallelism));
         return flinkEnv.scan(job.name());
     }
 }
