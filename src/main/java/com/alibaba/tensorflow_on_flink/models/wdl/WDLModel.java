@@ -208,11 +208,8 @@ public class WDLModel {
         TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
         TFConfig tfConfig = prepareTrainConfig(trainPy);
         tfConfig.setWorkerNum(2);
-        tfConfig.getProperties().put(FlinkAPIConstants.CODING_TYPE, CodingFactory.CodingType.CSV.toString());
-
-//        PythonFileUtil.registerPythonFiles(flinkEnv, tfConfig);
-//
-//        buildAmAndPs(flinkEnv, tableEnv, tfConfig);
+        tfConfig.getProperties().put(FlinkAPIConstants.CODING_TYPE,
+            CodingFactory.CodingType.CSV.toString());
 
         // parallelism for WDLTableSource
         flinkEnv.setParallelism(1);
@@ -223,21 +220,6 @@ public class WDLModel {
         TFUtils.train(flinkEnv, tableEnv, source, tfConfig,
             TableSchema.builder().field("aa", DataTypes.STRING).build());
         flinkEnv.execute();
-//        TypeInformation[] types = new TypeInformation[1];
-//        types[0] = BasicTypeInfo.STRING_TYPE_INFO;
-//        String[] names = { "aa" };
-//        RowTypeInfo outTypeInfo = new RowTypeInfo(types, names);
-//        DataStream<Row> toDataStream = ((StreamTableEnvironment) tableEnv).toAppendStream(
-//            source, tableSource.getTypeInfo());
-//        RowFlatMapOp flatMapOp = new RowFlatMapOp(ExecutionMode.TRAIN, Role.WORKER, tfConfig,
-//            tableSource.getTypeInfo(), outTypeInfo);
-//        DataStream<Row> outDataStream = toDataStream.flatMap(flatMapOp)
-//            .setParallelism(tfConfig.getWorkerNum()).name(Constants.DISPLAY_NAME_WORKER);
-//        outDataStream.addSink(new DummySink<>()).setParallelism(tfConfig.getWorkerNum())
-//            .name(Constants.DISPLAY_NAME_DUMMY_SINK);
-//        Table worker = ((StreamTableEnvironment) tableEnv).fromDataStream(outDataStream);
-//        worker.writeToSink(new PrintTableSink(TimeZone.getDefault()));
-//        flinkEnv.execute();
     }
 
     private void trainInputTableStreamEnv(String trainPy) throws Exception {
