@@ -12,6 +12,7 @@ import com.alibaba.flink.tensorflow.hadoop.util.TFRecordReader;
 import com.alibaba.flink.tensorflow.hadoop.util.TFRecordWriter;
 import com.alibaba.flink.tensorflow.util.ColumnInfos;
 import com.alibaba.flink.tensorflow.util.Constants;
+import com.alibaba.flink.tensorflow.util.FlinkAPIConstants;
 import com.alibaba.flink.tensorflow.util.PythonFileUtil;
 import com.alibaba.flink.tensorflow.util.Role;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
@@ -57,7 +58,8 @@ public class TFWDLTableFunction extends TableFunction<Row> implements Serializab
         tfContext = new TFContext(mode, config, job.toString(), index, config.getEnvPath(),
             ColumnInfos.dummy().getNameToTypeMap());
         PythonFileUtil.preparePythonFilesForExec(context, tfContext);
-        String codingTypeStr = tfContext.getProperties().getOrDefault(Constants.CODING_TYPE, "CSV");
+        String codingTypeStr = tfContext.getProperties().getOrDefault(
+            FlinkAPIConstants.CODING_TYPE, CodingFactory.CodingType.CSV.toString());
         decoding = CodingFactory.getCodingFromString(codingTypeStr, outTI, tfContext.getProperties());
         encoding = CodingFactory.getCodingFromString(codingTypeStr, inTI, tfContext.getProperties());
         try {

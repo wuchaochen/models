@@ -11,6 +11,7 @@ import com.alibaba.flink.tensorflow.hadoop.util.TFRecordReader;
 import com.alibaba.flink.tensorflow.hadoop.util.TFRecordWriter;
 import com.alibaba.flink.tensorflow.util.ColumnInfos;
 import com.alibaba.flink.tensorflow.util.Constants;
+import com.alibaba.flink.tensorflow.util.FlinkAPIConstants;
 import com.alibaba.flink.tensorflow.util.PythonFileUtil;
 import com.alibaba.flink.tensorflow.util.Role;
 import com.alibaba.flink.tensorflow.util.SerializeUtil;
@@ -68,7 +69,8 @@ public class RowMapFunction implements Closeable, Serializable {
     PythonFileUtil.preparePythonFilesForExec(runtimeContext, tfContext);
     executionConfig = runtimeContext.getExecutionConfig();
 
-    String codingTypeStr = tfContext.getProperties().getOrDefault(Constants.CODING_TYPE, "CSV");
+    String codingTypeStr = tfContext.getProperties().getOrDefault(
+        FlinkAPIConstants.CODING_TYPE, CodingFactory.CodingType.CSV.toString());
     decoding = CodingFactory.getCodingFromString(codingTypeStr, outTI, tfContext.getProperties());
     encoding = CodingFactory.getCodingFromString(codingTypeStr, inTI, tfContext.getProperties());
 
