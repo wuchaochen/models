@@ -6,6 +6,9 @@ def cluster_to_estimator(cluster_str):
     cluster = json.loads(cluster_str)
     worker_0 = cluster['worker'][0]
     del (cluster['worker'][0])
+    if 0 == len(cluster['worker']):
+        del(cluster['worker'])
+
     cluster['chief'] = [worker_0]
     return cluster
 
@@ -31,5 +34,5 @@ def export_cluster_env(cluster_str, job_name, index):
 
 
 if __name__ == '__main__':
-    cluster_str_test = '''{"ps":["172.17.0.1:42593"],"worker":["172.17.0.1:35120","172.17.0.1:51114"]}'''
+    cluster_str_test = '''{"ps":["172.17.0.1:42593"],"worker":["172.17.0.1:35120"]}'''
     export_cluster_env(cluster_str_test, 'ps', 0)

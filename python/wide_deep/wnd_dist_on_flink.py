@@ -31,6 +31,8 @@ def cluster_to_estimator(cluster_str):
     cluster = json.loads(cluster_str)
     worker_0 = cluster['worker'][0]
     del (cluster['worker'][0])
+    if 0 == len(cluster['worker']):
+        del(cluster['worker'])
     cluster['chief'] = [worker_0]
     return cluster
 
