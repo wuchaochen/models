@@ -159,7 +159,7 @@ def run_loop(context, train_input_fn, eval_input_fn, model_column_fn,
         build_estimator_fn: build estimator
     """
 
-    apply_clean(context.properties["checkpoint_dir"])
+    # apply_clean(context.properties["checkpoint_dir"])
     model_dir = context.properties["checkpoint_dir"]
     model_type = 'wide_deep'
     train_epochs = 40
