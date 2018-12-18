@@ -5,9 +5,7 @@ import com.alibaba.flink.tensorflow.util.Docker;
 import com.alibaba.flink.tensorflow.util.ShellExec;
 import com.alibaba.flink.tensorflow.util.SysUtil;
 import org.apache.hadoop.fs.Path;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 
 import java.io.File;
 
@@ -21,8 +19,8 @@ public class WDLModelTest {
     static String HDFS_ROOT_PATH = "/user/root/";
 
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeClass
+    public static void setUp() throws Exception {
         ClusterUtil.downloadVenv();
         YarnCluster.start();
         ClusterUtil.copyVenvToContainer();
@@ -31,14 +29,9 @@ public class WDLModelTest {
         YarnCluster.prepareHDFSInputData();
     }
 
-    @After
-    public void tearDown() throws Exception {
+    @AfterClass
+    public static void tearDown() throws Exception {
         YarnCluster.stop();
-    }
-
-    @Test
-    public void testRunWDLBatch() throws Exception{
-        System.out.println(ClusterUtil.getProjectRootPath());
     }
 
     private void runAndVerify(WDLModel.EnvMode mode, String script) {

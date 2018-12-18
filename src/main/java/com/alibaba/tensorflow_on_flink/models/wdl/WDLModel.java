@@ -208,7 +208,14 @@ public class WDLModel {
         TFConfig tfConfig = prepareTrainConfig(trainPy);
         TableSchema tableSchema = TableSchema.builder().field("a", DataTypes.STRING).build();
         TFUtils.train(flinkEnv, tableEnv, null, tfConfig, tableSchema);
-        flinkEnv.execute();
+        TableJobHelper helper = new TableJobHelper();
+        helper.like("WORKER", tfConfig.getWorkerNum());
+        helper.like("PS", tfConfig.getPsNum());
+        helper.like("AM", 1);
+        StreamGraph streamGraph =  helper.matchStreamGraph(flinkEnv.getStreamGraph());
+        String plan = TableJobHelper.streamPlan(streamGraph);
+        System.out.println(plan);
+        flinkEnv.execute(streamGraph);
     }
 
     private void trainTableToStreamWithInput(String trainPy) throws Exception {
@@ -219,14 +226,22 @@ public class WDLModel {
             CodingFactory.CodingType.CSV.toString());
 
         // parallelism for WDLTableSource
-        flinkEnv.setParallelism(1);
         WDLTableSource tableSource = new WDLTableSource(
             tfConfig.getProperty("input") + "/adult.data", 15, 100000);
         tableEnv.registerTableSource("adult", tableSource);
         Table source = tableEnv.scan("adult");
         TFUtils.train(flinkEnv, tableEnv, source, tfConfig,
             TableSchema.builder().field("aa", DataTypes.STRING).build());
-        flinkEnv.execute();
+        TableJobHelper helper = new TableJobHelper();
+//        helper.like("WORKER", tfConfig.getWorkerNum());
+        helper.like("PS", tfConfig.getPsNum());
+        helper.like("AM", 1);
+        helper.like("adult", tfConfig.getWorkerNum());
+        helper.like("WDLTableSource", tfConfig.getWorkerNum());
+        StreamGraph streamGraph =  helper.matchStreamGraph(flinkEnv.getStreamGraph());
+        String plan = TableJobHelper.streamPlan(streamGraph);
+        System.out.println(plan);
+        flinkEnv.execute(streamGraph);
     }
 
     private void trainInputTableStreamEnv(String trainPy) throws Exception {
@@ -243,6 +258,8 @@ public class WDLModel {
         TFTableJavaUtils.train(flinkEnv, tableEnv, source, tfConfig, null);
         TableJobHelper helper = new TableJobHelper();
         helper.like("WORKER", tfConfig.getWorkerNum());
+        helper.like("PS", tfConfig.getPsNum());
+        helper.like("AM", 1);
         helper.like("adult", tfConfig.getWorkerNum());
         helper.like("WDLTableSource", tfConfig.getWorkerNum());
         StreamGraph streamGraph =  helper.matchStreamGraph(flinkEnv.getStreamGraph());
