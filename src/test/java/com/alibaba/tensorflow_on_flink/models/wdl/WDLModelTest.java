@@ -61,7 +61,11 @@ public class WDLModelTest {
             "--envpath",
             YarnCluster.getVenvHdfsPath(),
             "--runner-class",
-            ProcessPythonRunner.class.getCanonicalName()
+            ProcessPythonRunner.class.getCanonicalName(),
+            "--worker-num",
+            "2",
+            "--ps-num",
+            "1"
         );
         System.out.println(output);
         String appId = YarnCluster.parseApplicationId(output);

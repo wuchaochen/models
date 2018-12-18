@@ -36,6 +36,8 @@ public class WDLModel {
     private Path codePath;
     private String zkConnStr;
     private String zkPath;
+    private int workerNum = 2;
+    private int psNum = 1;
 
     private FileSystem fs;
     private final String envPath;
@@ -49,12 +51,12 @@ public class WDLModel {
         TableToStreamInputEnv
     }
 
-    public WDLModel(String trainPath, String outputPath, String zkConnStr,String zkPath, String envPath,
+    public WDLModel(int workerNum, int psNum, String trainPath, String outputPath, String zkConnStr,String zkPath, String envPath,
                     String runnerClass){
-        this(trainPath, outputPath, zkConnStr, zkPath, envPath, runnerClass, null);
+        this(workerNum, psNum, trainPath, outputPath, zkConnStr, zkPath, envPath, runnerClass, null);
     }
 
-    public WDLModel(String trainPath, String outputPath, String zkConnStr, String zkPath, String envPath,
+    public WDLModel(int workerNum, int psNum, String trainPath, String outputPath, String zkConnStr, String zkPath, String envPath,
                     String runnerClass, String codePath) {
         this.trainPath = new Path(trainPath);
         this.outputPath = new Path(outputPath);
@@ -62,6 +64,8 @@ public class WDLModel {
         this.zkPath = zkPath;
         this.envPath = envPath;
         this.runnerClass = runnerClass;
+        this.workerNum = workerNum;
+        this.psNum = psNum;
         if(null == codePath || codePath.isEmpty()){
             this.codePath = null;
         }else {
@@ -98,6 +102,10 @@ public class WDLModel {
                 .help("Python runner implementation class name");
         parser.addArgument("--code").metavar("CODE").dest("CODE")
             .help("code zip file hdfs path");
+        parser.addArgument("--worker-num").metavar("WORKER_NUM").dest("WORKER_NUM")
+            .help("worker number");
+        parser.addArgument("--ps-num").metavar("PS_NUM").dest("PS_NUM")
+            .help("ps number");
 
         Namespace res = null;
         try {
@@ -116,8 +124,10 @@ public class WDLModel {
         String envPath = res.getString("ENVPATH");
         String runnerClass = res.getString("RUNNER_CLASS");
         String code = res.getString("CODE");
+        int workerNum = Integer.valueOf(res.getString("WORKER_NUM"));
+        int psNum = Integer.valueOf(res.getString("PS_NUM"));
 
-        WDLModel wdl = new WDLModel(trainDir, outputDir, zkConnStr, zkPath, envPath, runnerClass, code);
+        WDLModel wdl = new WDLModel(workerNum, psNum, trainDir, outputDir, zkConnStr, zkPath, envPath, runnerClass, code);
 
         EnvMode mode = res.get("MODE");
         switch (mode) {
@@ -175,7 +185,7 @@ public class WDLModel {
         prop.put(FlinkAPIConstants.CODING_TYPE,
             CodingFactory.CodingType.CSV.toString());
 
-        return new TFConfig(2, 1, prop, new String[]{trainPy}, "map_func", envPath);
+        return new TFConfig(this.workerNum, this.psNum, prop, new String[]{trainPy}, "map_func", envPath);
     }
 
     private void trainBatchEnv(String trainPy) throws Exception {
@@ -205,7 +215,6 @@ public class WDLModel {
         StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
         TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
         TFConfig tfConfig = prepareTrainConfig(trainPy);
-        tfConfig.setWorkerNum(2);
         tfConfig.getProperties().put(FlinkAPIConstants.CODING_TYPE,
             CodingFactory.CodingType.CSV.toString());
 
@@ -224,10 +233,9 @@ public class WDLModel {
         StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
         TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
         TFConfig tfConfig = prepareTrainConfig(trainPy);
-        tfConfig.setWorkerNum(2);
 
         WDLTableSource tableSource = new WDLTableSource(tfConfig.getProperty("input") + "/adult.data",
-            15, 500000);
+            15, 50000);
         tableEnv.registerTableSource("adult", tableSource);
         Table source = tableEnv.scan("adult");
 //        source.writeToSink(new PrintTableSink(TimeZone.getDefault()));
@@ -235,8 +243,8 @@ public class WDLModel {
         TFTableJavaUtils.train(flinkEnv, tableEnv, source, tfConfig, null);
         TableJobHelper helper = new TableJobHelper();
         helper.like("WORKER", tfConfig.getWorkerNum());
-        helper.like("adult", 2);
-        helper.like("WDLTableSource", 2);
+        helper.like("adult", tfConfig.getWorkerNum());
+        helper.like("WDLTableSource", tfConfig.getWorkerNum());
         StreamGraph streamGraph =  helper.matchStreamGraph(flinkEnv.getStreamGraph());
         String plan = TableJobHelper.streamPlan(streamGraph);
         System.out.println(plan);
