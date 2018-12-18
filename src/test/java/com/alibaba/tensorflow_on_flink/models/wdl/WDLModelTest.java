@@ -4,6 +4,7 @@ import com.alibaba.flink.tensorflow.python.ProcessPythonRunner;
 import com.alibaba.flink.tensorflow.util.Docker;
 import com.alibaba.flink.tensorflow.util.ShellExec;
 import com.alibaba.flink.tensorflow.util.SysUtil;
+import org.apache.hadoop.fs.Path;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -44,13 +45,15 @@ public class WDLModelTest {
         String output = YarnCluster.flinkStreamRun(JAR_NAME,
             WDLModel.class.getCanonicalName(),
             "--train-dir",
-            HDFS_ROOT_PATH + "data/",
+            WDLModel.getRemotePath(new Path(HDFS_ROOT_PATH + "data/")),
             "--code",
-            HDFS_ROOT_PATH + "code.zip",
+            WDLModel.getRemotePath(new Path(HDFS_ROOT_PATH + "code.zip")),
             "--output-dir",
-            "/user/root/minist/output_" + System.currentTimeMillis(),
+            WDLModel.getRemotePath(new Path("/user/root/minist/output_" + System.currentTimeMillis())),
             "--zk-conn-str",
             YarnCluster.getZKContainer(),
+            "--zk-path",
+            "/tensorflow_on_flink",
             "--mode",
             mode.toString(),
             "--train",
@@ -73,13 +76,8 @@ public class WDLModelTest {
     public void testFlinkTableRun() throws Exception{
         System.out.println(SysUtil._FUNC_());
         String rootPath = ClusterUtil.getProjectRootPath();
-        File code = new File(rootPath + "/target/code/");
-        if(code.exists()){
-            code.delete();
-        }
-        code.mkdir();
-        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/wnd_dist_on_flink.py " + code.getAbsolutePath());
-        ShellExec.run("cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
+        genCodeZip(rootPath);
+
         Docker.copyToContainer(YarnCluster.getYarnContainer(),
             rootPath + "/target/code.zip", YarnCluster.WORK_HOME);
         Docker.exec(YarnCluster.getYarnContainer(), "hadoop fs -put "
@@ -94,13 +92,7 @@ public class WDLModelTest {
     public void testFlinkInputTableRun() throws Exception{
         System.out.println(SysUtil._FUNC_());
         String rootPath = ClusterUtil.getProjectRootPath();
-        File code = new File(rootPath + "/target/code/");
-        if(code.exists()){
-            code.delete();
-        }
-        code.mkdir();
-        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/wnd_dist_on_flink_stream.py " + code.getAbsolutePath());
-        ShellExec.run("cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
+        genCodeZip(rootPath);
         Docker.copyToContainer(YarnCluster.getYarnContainer(),
             rootPath + "/target/code.zip", YarnCluster.WORK_HOME);
         Docker.exec(YarnCluster.getYarnContainer(), "hadoop fs -put "
@@ -111,17 +103,22 @@ public class WDLModelTest {
         runAndVerify(WDLModel.EnvMode.InputStreamTableEnv, "wnd_dist_on_flink_stream.py");
     }
 
+    private void genCodeZip(String rootPath) {
+        File code = new File(rootPath + "/target/code/");
+        if(code.exists()){
+            code.delete();
+        }
+        code.mkdir();
+        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/wnd_dist_on_flink.py " + code.getAbsolutePath());
+        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/wnd_dist_on_flink_stream.py " + code.getAbsolutePath());
+        ShellExec.run("cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
+    }
+
     @Test
     public void testTableToStreamWithInput() throws Exception {
         System.out.println(SysUtil._FUNC_());
         String rootPath = ClusterUtil.getProjectRootPath();
-        File code = new File(rootPath + "/target/code/");
-        if (code.exists()) {
-            code.delete();
-        }
-        code.mkdir();
-        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/wnd_dist_on_flink_stream.py " + code
-            .getAbsolutePath());
+        genCodeZip(rootPath);
         ShellExec.run(
             "cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
         Docker.copyToContainer(YarnCluster.getYarnContainer(),

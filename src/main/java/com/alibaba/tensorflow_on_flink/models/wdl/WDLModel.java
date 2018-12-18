@@ -2,43 +2,32 @@ package com.alibaba.tensorflow_on_flink.models.wdl;
 
 import com.alibaba.flink.tensorflow.client.*;
 import com.alibaba.flink.tensorflow.coding.CodingFactory;
-import com.alibaba.flink.tensorflow.flink_op.sink.DummySink;
-import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableFunction;
-import com.alibaba.flink.tensorflow.flink_op.table.TFNodeTableSource;
-import com.alibaba.flink.tensorflow.flink_op.table.TFTableFunction;
+
 import com.alibaba.flink.tensorflow.util.Constants;
 import com.alibaba.flink.tensorflow.util.FlinkAPIConstants;
-import com.alibaba.flink.tensorflow.util.FlinkUtil;
-import com.alibaba.flink.tensorflow.util.PythonFileUtil;
-import com.alibaba.flink.tensorflow.util.Role;
+
 import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import org.apache.commons.lang.StringUtils;
-import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
+
 import org.apache.flink.api.java.ExecutionEnvironment;
-import org.apache.flink.api.java.typeutils.RowTypeInfo;
-import org.apache.flink.streaming.api.datastream.DataStream;
+
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.graph.StreamGraph;
 import org.apache.flink.table.api.Table;
-import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.TableSchema;
-import org.apache.flink.table.api.functions.TableFunction;
-import org.apache.flink.table.api.java.StreamTableEnvironment;
+
 import org.apache.flink.table.api.types.DataTypes;
-import org.apache.flink.table.sinks.PrintTableSink;
-import org.apache.flink.types.Row;
+
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.TimeZone;
 
 public class WDLModel {
 
@@ -46,6 +35,8 @@ public class WDLModel {
     private Path outputPath;
     private Path codePath;
     private String zkConnStr;
+    private String zkPath;
+
     private FileSystem fs;
     private final String envPath;
     private final String runnerClass;
@@ -58,16 +49,17 @@ public class WDLModel {
         TableToStreamInputEnv
     }
 
-    public WDLModel(String trainPath, String outputPath, String zkConnStr, String envPath,
+    public WDLModel(String trainPath, String outputPath, String zkConnStr,String zkPath, String envPath,
                     String runnerClass){
-        this(trainPath, outputPath, zkConnStr, envPath, runnerClass, null);
+        this(trainPath, outputPath, zkConnStr, zkPath, envPath, runnerClass, null);
     }
 
-    public WDLModel(String trainPath, String outputPath, String zkConnStr, String envPath,
+    public WDLModel(String trainPath, String outputPath, String zkConnStr, String zkPath, String envPath,
                     String runnerClass, String codePath) {
         this.trainPath = new Path(trainPath);
         this.outputPath = new Path(outputPath);
         this.zkConnStr = zkConnStr;
+        this.zkPath = zkPath;
         this.envPath = envPath;
         this.runnerClass = runnerClass;
         if(null == codePath || codePath.isEmpty()){
@@ -97,6 +89,7 @@ public class WDLModel {
         parser.addArgument("--mode").dest("MODE").type(EnvMode.class)
                 .help("Use which execution environment to run (default: StreamEnv)").setDefault(EnvMode.BatchEnv);
         parser.addArgument("--zk-conn-str").metavar("ZK_CONN_STR").dest("ZK_CONN_STR");
+        parser.addArgument("--zk-path").metavar("ZK_PATH").dest("ZK_PATH");
         parser.addArgument("--train").metavar("MNIST_TRAIN_PYTHON").dest("TRAIN_PY")
             .help("The python script to run TF train.");
         parser.addArgument("--envpath").metavar("ENVPATH").dest("ENVPATH")
@@ -118,12 +111,13 @@ public class WDLModel {
         String trainDir = res.getString("TRAIN_DIR");
         String outputDir = res.getString("OUTPUT_DIR");
         String zkConnStr = res.getString("ZK_CONN_STR");
+        String zkPath = res.getString("ZK_PATH");
         String trainPy = res.getString("TRAIN_PY");
         String envPath = res.getString("ENVPATH");
         String runnerClass = res.getString("RUNNER_CLASS");
         String code = res.getString("CODE");
 
-        WDLModel wdl = new WDLModel(trainDir, outputDir, zkConnStr, envPath, runnerClass, code);
+        WDLModel wdl = new WDLModel(trainDir, outputDir, zkConnStr, zkPath, envPath, runnerClass, code);
 
         EnvMode mode = res.get("MODE");
         switch (mode) {
@@ -147,7 +141,7 @@ public class WDLModel {
     }
 
 
-    private String getRemotePath(Path p) {
+    public static String getRemotePath(Path p) {
         return "hdfs://hadoop-master:9000" + p.toString();
     }
 
@@ -159,9 +153,9 @@ public class WDLModel {
         prop.put("epochs", "3");
         String mode = "train";
         prop.put("mode", mode);
-        prop.put("input", getRemotePath(trainPath));
-        prop.put("checkpoint_dir", getRemotePath(outputPath) + "/checkpoint");
-        prop.put("export_dir", getRemotePath(outputPath) + "/model");
+        prop.put("input", trainPath.toString());
+        prop.put("checkpoint_dir", outputPath + "/checkpoint");
+        prop.put("export_dir", outputPath + "/model");
         if(null != codePath){
             prop.put(Constants.REMOTE_CODE_ZIP_FILE, codePath.toString());
             prop.put(Constants.USE_DISTRIBUTE_CACHE, String.valueOf(false));
@@ -170,6 +164,9 @@ public class WDLModel {
         if (zkConnStr != null && !zkConnStr.isEmpty()) {
             prop.put(Constants.CONFIG_STORAGE_TYPE, Constants.STORAGE_ZOOKEEPER);
             prop.put(Constants.CONFIG_ZOOKEEPER_CONNECT_STR, zkConnStr);
+        }
+        if(null != zkPath && !zkPath.isEmpty()){
+            prop.put(Constants.CONFIG_ZOOKEEPER_BASE_PATH, zkPath);
         }
 
         if (!StringUtils.isEmpty(runnerClass)) {
