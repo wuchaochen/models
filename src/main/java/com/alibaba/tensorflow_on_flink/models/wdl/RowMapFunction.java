@@ -71,8 +71,8 @@ public class RowMapFunction implements Closeable, Serializable {
 
     String codingTypeStr = tfContext.getProperties().getOrDefault(
         FlinkAPIConstants.CODING_TYPE, CodingFactory.CodingType.CSV.toString());
-    decoding = CodingFactory.getCodingFromString(codingTypeStr, outTI, tfContext.getProperties());
-    encoding = CodingFactory.getCodingFromString(codingTypeStr, inTI, tfContext.getProperties());
+    decoding = CodingFactory.getCoding(codingTypeStr, outTI, tfContext.getProperties(), executionConfig);
+    encoding = CodingFactory.getCoding(codingTypeStr, inTI, tfContext.getProperties(), executionConfig);
 
     try {
       serverFuture = new FutureTask<>(new TFNodeServer(tfContext, job), null);
