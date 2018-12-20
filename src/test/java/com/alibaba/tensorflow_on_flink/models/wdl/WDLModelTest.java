@@ -42,7 +42,7 @@ public class WDLModelTest {
             "--code",
             WDLModel.getRemotePath(new Path(HDFS_ROOT_PATH + "code.zip")),
             "--output-dir",
-            WDLModel.getRemotePath(new Path("/user/root/minist/output_" + System.currentTimeMillis())),
+            WDLModel.getRemotePath(new Path("/user/root/wdl/output_" + System.currentTimeMillis())),
             "--zk-conn-str",
             YarnCluster.getZKContainer(),
             "--zk-path",
@@ -111,6 +111,19 @@ public class WDLModelTest {
         ShellExec.run("cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
     }
 
+    private void genCodeZipEx(String rootPath) {
+        File code = new File(rootPath + "/target/code/");
+        if(code.exists()){
+            code.delete();
+        }
+        code.mkdir();
+        ShellExec.run("cp -r " + rootPath + "/python/wide_deep/ " + code.getAbsolutePath());
+        ShellExec.run("cp -r " + rootPath + "/python/utils/ " + code.getAbsolutePath());
+        ShellExec.run("cp -r " + rootPath + "/python/census_main_flink.py " + code.getAbsolutePath());
+
+        ShellExec.run("cd " + rootPath + "/target && zip -r  " + rootPath + "/target/code.zip code");
+    }
+
     @Test
     public void testTableToStreamWithInput() throws Exception {
         System.out.println(SysUtil._FUNC_());
@@ -126,6 +139,22 @@ public class WDLModelTest {
         Docker.copyToContainer(YarnCluster.getYarnContainer(),
             rootPath + "/target/" + JAR_NAME, YarnCluster.WORK_HOME);
         runAndVerify(WDLModel.EnvMode.TableToStreamInputEnv, "wnd_dist_on_flink_stream.py");
+    }
+
+    @Test
+    public void testFlinkTableRunEx() throws Exception{
+        System.out.println(SysUtil._FUNC_());
+        String rootPath = ClusterUtil.getProjectRootPath();
+        genCodeZipEx(rootPath);
+
+        Docker.copyToContainer(YarnCluster.getYarnContainer(),
+            rootPath + "/target/code.zip", YarnCluster.WORK_HOME);
+        Docker.exec(YarnCluster.getYarnContainer(), "hadoop fs -put "
+            + YarnCluster.WORK_HOME + "/code.zip " + HDFS_ROOT_PATH);
+
+        Docker.copyToContainer(YarnCluster.getYarnContainer(),
+            rootPath + "/target/" + JAR_NAME, YarnCluster.WORK_HOME);
+        runAndVerify(WDLModel.EnvMode.StreamTableEnv, "census_main_flink.py");
     }
 
 }
