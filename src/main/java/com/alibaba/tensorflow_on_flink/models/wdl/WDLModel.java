@@ -191,14 +191,14 @@ public class WDLModel {
     private void trainBatchEnv(String trainPy) throws Exception {
         ExecutionEnvironment flinkEnv = ExecutionEnvironment.getExecutionEnvironment();
         TFConfig tfConfig = prepareTrainConfig(trainPy);
-        TFUtils.train(flinkEnv, null, tfConfig, String.class);
+        TFUtils.train(flinkEnv, null, tfConfig);
         flinkEnv.execute();
     }
 
     private void trainStreamEnv(String trainPy) throws Exception {
         StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
         TFConfig tfConfig = prepareTrainConfig(trainPy);
-        TFUtils.train(flinkEnv, null, tfConfig, String.class);
+        TFUtils.train(flinkEnv, null, tfConfig);
         flinkEnv.execute();
     }
 
@@ -206,8 +206,7 @@ public class WDLModel {
         StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
         TableEnvironment tableEnv = TableEnvironment.getTableEnvironment(flinkEnv);
         TFConfig tfConfig = prepareTrainConfig(trainPy);
-        TableSchema tableSchema = TableSchema.builder().field("a", DataTypes.STRING).build();
-        TFUtils.train(flinkEnv, tableEnv, null, tfConfig, tableSchema);
+        TFUtils.train(flinkEnv, tableEnv, null, tfConfig, null);
         TableJobHelper helper = new TableJobHelper();
         helper.like("WORKER", tfConfig.getWorkerNum());
         helper.like("PS", tfConfig.getPsNum());
@@ -230,8 +229,7 @@ public class WDLModel {
             tfConfig.getProperty("input") + "/adult.data", 15, 100000);
         tableEnv.registerTableSource("adult", tableSource);
         Table source = tableEnv.scan("adult");
-        TFUtils.train(flinkEnv, tableEnv, source, tfConfig,
-            TableSchema.builder().field("aa", DataTypes.STRING).build());
+        TFUtils.train(flinkEnv, tableEnv, source, tfConfig, null);
         TableJobHelper helper = new TableJobHelper();
 //        helper.like("WORKER", tfConfig.getWorkerNum());
         helper.like("PS", tfConfig.getPsNum());
