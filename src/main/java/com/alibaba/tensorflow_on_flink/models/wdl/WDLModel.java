@@ -191,14 +191,14 @@ public class WDLModel {
     private void trainBatchEnv(String trainPy) throws Exception {
         ExecutionEnvironment flinkEnv = ExecutionEnvironment.getExecutionEnvironment();
         TFConfig tfConfig = prepareTrainConfig(trainPy);
-        TFUtils.train(flinkEnv, null, tfConfig);
+        TFUtils.train(flinkEnv, null, tfConfig, String.class);
         flinkEnv.execute();
     }
 
     private void trainStreamEnv(String trainPy) throws Exception {
         StreamExecutionEnvironment flinkEnv = StreamExecutionEnvironment.getExecutionEnvironment();
         TFConfig tfConfig = prepareTrainConfig(trainPy);
-        TFUtils.train(flinkEnv, null, tfConfig);
+        TFUtils.train(flinkEnv, tfConfig, String.class);
         flinkEnv.execute();
     }
 
